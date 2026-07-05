@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block page_title %}隱寫術{% endblock %}</title>
+  <style>
+    body { font-family: "Segoe UI", Arial, sans-serif; margin: 20px; background: #0f172a; color: #e2e8f0; max-width: 1200px; }
+    .app-header { margin-bottom: 18px; }
+    .app-header h1 { margin: 0 0 6px; font-size: 1.55rem; font-weight: 700; }
+    .app-header .app-subtitle { margin: 0; color: #94a3b8; font-size: 0.92rem; }
+    .section-drawer {
+      margin-bottom: 14px;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      background: #1e293b;
+      overflow: hidden;
+    }
+    .section-drawer > summary {
+      padding: 14px 18px;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 1.02rem;
+      list-style: none;
+      user-select: none;
+    }
+    .section-drawer > summary::-webkit-details-marker { display: none; }
+    .section-drawer > summary::before {
+      content: "▸ ";
+      color: #64748b;
+      display: inline-block;
+      transition: transform 0.15s ease;
+      margin-right: 4px;
+    }
+    .section-drawer[open] > summary::before { transform: rotate(90deg); }
+    .section-drawer > summary:hover { background: #243045; }
+    .section-drawer.embed > summary { border-left: 4px solid #2563eb; padding-left: 14px; }
+    .section-drawer.decode > summary { border-left: 4px solid #f59e0b; padding-left: 14px; }
+    .section-drawer.docs > summary { border-left: 4px solid #64748b; padding-left: 14px; }
+    .section-drawer.extra > summary { border-left: 4px solid #8b5cf6; padding-left: 14px; }
+    .section-drawer-body { padding: 4px 16px 16px; }
+    .section-drawer-body > .card:last-child { margin-bottom: 0; }
+    .section-summary-hint { font-weight: 400; color: #64748b; font-size: 0.85rem; margin-left: 8px; }
+    .card { background: #1e293b; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+    .dz { border: 2px dashed #475569; border-radius: 8px; padding: 16px; text-align: center; position: relative; }
+    .dz input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+    img { width: 100%; max-height: 280px; object-fit: contain; border-radius: 8px; background: #020617; }
+    .placeholder { height: 220px; display: flex; align-items: center; justify-content: center; border: 1px dashed #475569; border-radius: 8px; color: #94a3b8; }
+    input, textarea { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #334155; background: #0b1220; color: #e2e8f0; box-sizing: border-box; }
+    textarea { min-height: 70px; }
+    .secret-label-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; margin-bottom: 6px;
+    }
+    .secret-label-row > span { font-weight: 600; }
+    .btn-file-pick {
+      display: inline-flex; align-items: center; padding: 6px 12px;
+      border-radius: 8px; border: 1px solid #475569; background: #0b1220;
+      color: #93c5fd; font-size: 0.85rem; cursor: pointer; white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .btn-file-pick:hover { background: #1e293b; }
+    .btn-file-pick input { display: none; }
+    #secretFileHint { margin-bottom: 6px; font-size: 0.85rem; }
+    .ok { color: #22c55e; font-weight: 700; }
+    .bad { color: #ef4444; font-weight: 700; }
+    .warn { color: #fbbf24; font-weight: 700; }
+    .muted { color: #94a3b8; font-size: 0.9rem; }
+    pre { white-space: pre-wrap; background: #0b1220; padding: 10px; border-radius: 8px; max-height: 220px; overflow: auto; font-size: 0.82rem; }
+    .dl-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+    .dl-row a {
+      display: inline-block; padding: 8px 14px; background: #2563eb; color: #fff;
+      text-decoration: none; border-radius: 8px; font-weight: 700;
+    }
+    .dl-row a.disabled { background: #334155; pointer-events: none; opacity: 0.5; }
+    #status, #decodeStatus { margin-top: 8px; min-height: 1.2em; }
+    #status { color: #93c5fd; }
+    #decodeStatus { color: #fbbf24; }
+    .cap-line { margin: 4px 0; }
+    .cap-error-detail {
+      margin-top: 8px;
+      padding: 10px 12px;
+      background: #1a0f0f;
+      border: 1px solid #7f1d1d;
+      border-radius: 8px;
+      color: #fca5a5;
+      font-size: 0.78rem;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: ui-monospace, Consolas, monospace;
+      max-height: 280px;
+      overflow: auto;
+    }
+    .cap-viz {
+      margin-top: 14px;
+      padding: 14px 16px;
+      background: #0b1220;
+      border: 1px solid #334155;
+      border-radius: 8px;
+    }
+    .cap-viz h4 { margin: 0 0 4px; font-size: 0.95rem; color: #e2e8f0; }
+    .cap-viz-head {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 8px 12px; margin-bottom: 4px;
+    }
+    .cap-viz-head h4 { margin: 0; }
+    .cap-chart-select {
+      font-size: 0.78rem; padding: 4px 8px; border-radius: 6px;
+      border: 1px solid #475569; background: #1e293b; color: #e2e8f0; cursor: pointer;
+    }
+    .cap-pie-wrap {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 16px 20px; margin-bottom: 16px;
+    }
+    .cap-pie {
+      width: 120px; height: 120px; border-radius: 50%; flex-shrink: 0;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
+    }
+    .cap-pie-wrap .cap-stack-legend { flex: 1; min-width: 180px; margin-top: 0; }
+    .cap-chart-title {
+      margin: 0 0 4px;
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: #f8fafc;
+    }
+    .cap-chart-desc {
+      margin: 0 0 12px;
+      font-size: 0.82rem;
+      color: #64748b;
+      line-height: 1.45;
+    }
+    .cap-chart-section { margin-bottom: 20px; }
+    .cap-chart-section:last-of-type { margin-bottom: 0; }
+    .cap-viz-bottom {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 4px;
+    }
+    @media (max-width: 760px) {
+      .cap-viz-bottom { grid-template-columns: 1fr; }
+    }
+    .cap-kv-panel {
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 14px 16px;
+      background: #0b1220;
+    }
+    .cap-kv-panel h5 {
+      margin: 0 0 10px;
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #e2e8f0;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #334155;
+    }
+    .cap-kv-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+      padding: 7px 0;
+      font-size: 0.88rem;
+      border-bottom: 1px solid #1e293b;
+    }
+    .cap-kv-row:last-child { border-bottom: none; }
+    .cap-kv-label { color: #94a3b8; flex-shrink: 0; }
+    .cap-kv-value {
+      color: #e2e8f0;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+    .cap-kv-value .muted { color: #64748b; font-size: 0.82rem; }
+    .cap-kv-value .ok { color: #22c55e; }
+    .cap-kv-value .bad { color: #ef4444; }
+    .cap-kv-value .warn { color: #fbbf24; }
+    .cap-stack-wrap { margin-bottom: 16px; }
+    .cap-stack-track {
+      display: flex; height: 18px; border-radius: 9px; overflow: hidden; background: #1e293b;
+    }
+    .cap-stack-seg { height: 100%; min-width: 0; transition: width 0.35s ease; }
+    .cap-stack-seg.overflow { background: linear-gradient(90deg, #dc2626, #ef4444); }
+    .cap-stack-seg.safe { background: linear-gradient(90deg, #16a34a, #22c55e); }
+    .cap-stack-seg.header { background: linear-gradient(90deg, #d97706, #f59e0b); }
+    .cap-stack-seg.payload { background: linear-gradient(90deg, #0284c7, #38bdf8); }
+    .cap-stack-seg.strict { background: linear-gradient(90deg, #7e22ce, #c084fc); }
+    .cap-stack-seg.weak { background: linear-gradient(90deg, #0891b2, #67e8f9); }
+    .cap-stack-seg.bit-magic { background: linear-gradient(90deg, #6366f1, #818cf8); }
+    .cap-stack-seg.bit-idx { background: linear-gradient(90deg, #0d9488, #2dd4bf); }
+    .cap-stack-seg.bit-n { background: linear-gradient(90deg, #ca8a04, #facc15); }
+    .cap-stack-seg.bit-iovf { background: linear-gradient(90deg, #dc2626, #f87171); }
+    .cap-stack-seg.bit-name { background: linear-gradient(90deg, #2563eb, #60a5fa); }
+    .cap-stack-seg.bit-weak { background: linear-gradient(90deg, #9333ea, #d8b4fe); }
+    .cap-stack-seg.bit-m { background: linear-gradient(90deg, #ea580c, #fb923c); }
+    .cap-stack-seg.rest { background: linear-gradient(90deg, #334155, #475569); }
+    .cap-stack-seg.secret { background: linear-gradient(90deg, #7e22ce, #c084fc); }
+    .cap-stack-legend {
+      display: flex; flex-wrap: wrap; gap: 10px 16px; margin-top: 8px;
+      font-size: 0.78rem; color: #94a3b8;
+    }
+    .cap-stack-legend span::before {
+      content: ""; display: inline-block; width: 8px; height: 8px;
+      border-radius: 2px; margin-right: 5px; vertical-align: middle;
+    }
+    .cap-stack-legend .lg-overflow::before { background: #ef4444; }
+    .cap-stack-legend .lg-safe::before { background: #22c55e; }
+    .cap-stack-legend .lg-header::before { background: #f59e0b; }
+    .cap-stack-legend .lg-payload::before { background: #38bdf8; }
+    .cap-stack-legend .lg-strict::before { background: #c084fc; }
+    .cap-stack-legend .lg-weak::before { background: #67e8f9; }
+    .cap-stack-legend .lg-rest::before { background: #64748b; }
+    .cap-stack-legend .lg-secret::before { background: #c084fc; }
+    .cap-bar-row {
+      display: grid; grid-template-columns: 10.5em 1fr 3.2em;
+      gap: 8px 10px; align-items: center; margin-bottom: 8px; font-size: 0.86rem;
+    }
+    .cap-bar-label { color: #94a3b8; white-space: nowrap; }
+    .cap-bar-track {
+      position: relative; height: 13px; background: #1e293b;
+      border-radius: 7px; overflow: hidden;
+    }
+    .cap-bar-fill {
+      height: 100%; border-radius: 7px; transition: width 0.35s ease; min-width: 0;
+    }
+    .cap-bar-fill.total { background: linear-gradient(90deg, #475569, #64748b); }
+    .cap-bar-fill.overflow { background: linear-gradient(90deg, #dc2626, #f87171); }
+    .cap-bar-fill.safe { background: linear-gradient(90deg, #15803d, #4ade80); }
+    .cap-bar-fill.header { background: linear-gradient(90deg, #b45309, #fbbf24); }
+    .cap-bar-fill.payload { background: linear-gradient(90deg, #0369a1, #7dd3fc); }
+    .cap-bar-fill.strict { background: linear-gradient(90deg, #7e22ce, #c084fc); }
+    .cap-bar-fill.weak { background: linear-gradient(90deg, #0891b2, #67e8f9); }
+    .cap-bar-fill.bit-magic { background: linear-gradient(90deg, #6366f1, #818cf8); }
+    .cap-bar-fill.bit-idx { background: linear-gradient(90deg, #0d9488, #2dd4bf); }
+    .cap-bar-fill.bit-n { background: linear-gradient(90deg, #ca8a04, #facc15); }
+    .cap-bar-fill.bit-iovf { background: linear-gradient(90deg, #dc2626, #f87171); }
+    .cap-bar-fill.bit-name { background: linear-gradient(90deg, #2563eb, #60a5fa); }
+    .cap-bar-fill.bit-weak { background: linear-gradient(90deg, #9333ea, #d8b4fe); }
+    .cap-bar-fill.bit-m { background: linear-gradient(90deg, #ea580c, #fb923c); }
+    .cap-bar-fill.secret { background: linear-gradient(90deg, #7e22ce, #c084fc); }
+    .cap-bar-pct {
+      text-align: right; color: #e2e8f0; font-variant-numeric: tabular-nums; font-size: 0.82rem;
+    }
+    .cap-bar-detail {
+      grid-column: 2 / 4; margin: -4px 0 2px; font-size: 0.76rem; color: #64748b;
+    }
+    .cap-table-block { margin-top: 16px; }
+    .cap-table-block h5 {
+      margin: 0 0 8px; font-size: 0.9rem; color: #e2e8f0; font-weight: 700;
+    }
+    .cap-table {
+      width: 100%; border-collapse: collapse; font-size: 0.84rem;
+    }
+    .cap-table th, .cap-table td {
+      padding: 8px 10px; border-bottom: 1px solid #334155; text-align: left;
+    }
+    .cap-table th { color: #94a3b8; font-weight: 600; background: #0b1220; }
+    .cap-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .cap-table tr.total td { font-weight: 700; border-top: 1px solid #475569; }
+    .cap-mini-bars { margin-top: 10px; }
+    .compat-score { display: none !important; }
+    .decode-result-text {
+      white-space: pre-wrap; word-break: break-word; line-height: 1.6; min-height: 160px;
+    }
+    .decode-result-head {
+      display: flex; justify-content: space-between; align-items: center;
+      gap: 10px; margin-bottom: 8px;
+    }
+    .copy-btn {
+      padding: 6px 12px; border: none; border-radius: 8px;
+      background: #334155; color: #e2e8f0; font-weight: 700; cursor: pointer;
+    }
+    .copy-btn:hover:not(:disabled) { background: #475569; }
+    .copy-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .image-stats {
+      margin-top: 6px; padding: 8px 10px; border-radius: 8px;
+      background: #0b1220; color: #93c5fd; font-size: 0.92rem;
+    }
+    .packet-dynamic { margin-top: 12px; line-height: 1.85; }
+    .packet-dynamic .dyn-val { color: #22c55e; font-weight: 700; }
+    .packet-dynamic .dyn-warn { color: #fbbf24; font-weight: 700; }
+    .packet-dynamic .pkt-row {
+      display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap;
+    }
+    .packet-dynamic .pkt-pos {
+      flex: 0 0 7em; text-align: right; color: #64748b;
+      font-family: ui-monospace, Consolas, monospace; font-size: 0.84em; user-select: all;
+    }
+    .packet-dynamic .pkt-gap .pkt-pos { color: #fbbf24; }
+    .packet-dynamic .pkt-gap .pkt-body { border-left: 3px solid #f59e0b; padding-left: 8px; }
+    .packet-drawer {
+      margin-top: 12px; border: 1px solid #334155; border-radius: 8px;
+      background: #0b1220; overflow: hidden;
+    }
+    .packet-drawer > summary {
+      padding: 10px 14px; cursor: pointer; font-weight: 700; font-size: 0.95rem;
+      list-style: none; user-select: none;
+    }
+    .packet-drawer > summary::-webkit-details-marker { display: none; }
+    .packet-drawer > summary::before {
+      content: "▸ "; color: #64748b; display: inline-block;
+      transition: transform 0.15s ease;
+    }
+    .packet-drawer[open] > summary::before { transform: rotate(90deg); }
+    .packet-drawer > summary:hover { background: #1e293b; }
+    .packet-drawer .packet-drawer-body { padding: 0 14px 14px; }
+    .flow {
+      background: #0b1220; padding: 14px; border-radius: 8px;
+      font-size: 0.88rem; line-height: 1.7;
+    }
+    .flow code { background: #1e293b; padding: 2px 6px; border-radius: 4px; }
+    {% block head_extra %}{% endblock %}
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <h1>{% block page_heading %}隱寫術{% endblock %}</h1>
+    {% block page_subtitle %}{% endblock %}
+  </header>
+
+  <details class="section-drawer embed" id="panelEmbed"{% if panel_embed_open|default(true) %} open{% endif %}>
+    <summary>
+      {% block embed_summary %}① 嵌入{% endblock %}
+      {% block embed_summary_hint %}<span class="section-summary-hint">{% block embed_hint %}封面 + DATA → 隱寫圖{% endblock %}</span>{% endblock %}
+    </summary>
+    <div class="section-drawer-body">
+      {% block embed_panel %}{% endblock %}
+    </div>
+  </details>
+
+  <details class="section-drawer decode" id="panelDecode"{% if panel_decode_open|default(true) %} open{% endif %}>
+    <summary>
+      {% block decode_summary %}② 解碼{% endblock %}
+      {% block decode_summary_hint %}<span class="section-summary-hint">{% block decode_hint %}上傳隱寫圖提取 DATA{% endblock %}</span>{% endblock %}
+    </summary>
+    <div class="section-drawer-body">
+      {% block decode_panel %}{% endblock %}
+    </div>
+  </details>
+
+  <details class="section-drawer docs" id="panelDocs"{% if panel_docs_open|default(false) %} open{% endif %}>
+    <summary>
+      {% block docs_summary %}③ 說明{% endblock %}
+      {% block docs_summary_hint %}{% endblock %}
+    </summary>
+    <div class="section-drawer-body">
+      {% block docs_panel %}{% endblock %}
+    </div>
+  </details>
+
+  <details class="section-drawer extra" id="panelExtra"{% if panel_extra_open|default(false) %} open{% endif %}>
+    <summary>
+      {% block extra_summary %}④ {% block extra_title %}其他{% endblock %}{% endblock %}
+      {% block extra_summary_hint %}{% endblock %}
+    </summary>
+    <div class="section-drawer-body">
+      {% block extra_panel %}
+      <p class="muted" style="margin:0;">預留區塊，可放置其他演算法專用工具或紀錄。</p>
+      {% endblock %}
+    </div>
+  </details>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>

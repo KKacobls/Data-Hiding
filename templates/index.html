@@ -1,0 +1,1239 @@
+{% extends "stego_layout.html" %}
+
+{% block page_title %}DE 差值擴展隱寫術{% endblock %}
+{% block page_heading %}DE 差值擴展隱寫術{% endblock %}
+
+{% block embed_panel %}
+  <div class="card">
+    <div class="row">
+      <div>
+        <div class="dz" data-paste-zone="cover">拖曳、點擊或 Ctrl+V 選擇封面圖片<input type="file" id="coverFile" accept=".bmp,.png,.jpg,.jpeg,image/*"></div>
+        <div id="fname" style="margin-top:8px;color:#93c5fd;"></div>
+        <div id="imageStats" class="image-stats" style="display:none;"></div>
+        <div id="status"></div>
+      </div>
+      <div>
+        <div class="secret-label-row">
+          <span>DATA（要隱藏的文字或檔案）</span>
+          <label class="btn-file-pick">
+            選擇檔案
+            <input type="file" id="secretFile" accept="*/*">
+          </label>
+        </div>
+        <div id="secretFileHint" class="muted" style="display:none;"></div>
+        <textarea id="secret">Hello DE</textarea>
+      </div>
+    </div>
+  </div>
+
+  <div class="card row3">
+    <div><h4>原圖</h4><div id="coverBox" class="placeholder">尚未選圖</div></div>
+    <div><h4>隱寫圖</h4><div id="stegoBox" class="placeholder">等待運算</div></div>
+    <div><h4>解碼還原圖</h4><div id="restoredBox" class="placeholder">等待運算</div></div>
+  </div>
+
+  <div class="card">
+    <div id="capInfo"><div class="cap-line">可藏容量：-</div></div>
+    <div id="capViz" style="display:none;"></div>
+    <div id="overflowInfo" class="muted" style="margin-top:6px;"></div>
+    <details id="packetDrawer" class="packet-drawer" style="display:none;">
+      <summary>本圖封包結構（V4 動態）<span id="packetDrawerHint" class="muted" style="font-weight:400;margin-left:8px;"></span></summary>
+      <div class="packet-drawer-body">
+        <div id="packetDynamic"></div>
+      </div>
+    </details>
+    <div id="decodeText" style="margin-top:10px;">解碼 DATA：-</div>
+    <div id="judge" style="margin-top:8px;">判斷：-</div>
+    <div class="dl-row">
+      <a id="dlStego" class="disabled" href="#" download>下載隱寫圖 PNG</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <h4>嵌入 log</h4><pre id="embedLog">-</pre>
+    <h4>自動驗證 log</h4><pre id="decodeLog">-</pre>
+  </div>
+
+{% endblock %}
+
+{% block decode_panel %}
+  <div class="card">
+    <label>隱寫圖</label>
+    <div class="dz" data-paste-zone="stego">拖曳、點擊或 Ctrl+V<input type="file" id="stegoFile" accept=".png,.jpg,.jpeg,.bmp,image/*"></div>
+    <div id="stegoFname" style="margin-top:8px;color:#fbbf24;"></div>
+    <div id="decodeImageStats" class="image-stats" style="display:none;"></div>
+    <div id="decodeStatus"></div>
+  </div>
+
+  <div class="card row3">
+    <div><h4>隱寫圖</h4><div id="decodeStegoBox" class="placeholder">尚未上傳</div></div>
+    <div><h4>還原封面</h4><div id="decodeCoverBox" class="placeholder">尚未解碼</div></div>
+    <div>
+      <h4>解碼結果</h4>
+      <div style="padding:12px;background:#0b1220;border-radius:8px;min-height:220px;">
+        <div id="decodeExtInfo" class="muted" style="margin-bottom:8px;">檔案名稱：—</div>
+        <div class="decode-result-head">
+          <span class="muted" id="decodeResultLabel">提取內容</span>
+          <div style="display:flex;gap:8px;flex-shrink:0;">
+            <button type="button" id="btnDownloadDecode" class="copy-btn" disabled>下載</button>
+            <button type="button" id="btnCopyDecode" class="copy-btn" disabled>複製</button>
+          </div>
+        </div>
+        <div id="decodeImageWrap" style="display:none;margin-bottom:10px;">
+          <img id="decodeImagePreview" alt="解碼預覽" style="max-width:100%;max-height:200px;border-radius:6px;">
+        </div>
+        <div id="decodeOnlyText" class="decode-result-text">—</div>
+        <div id="decodeOnlyJudge" style="margin-top:10px;">狀態：-</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card"><h4>解碼 log</h4><pre id="decodeOnlyLog">-</pre></div>
+
+{% endblock %}
+
+{% block docs_panel %}
+  <div class="card">
+    <h4>封包格式（V4）</h4>
+    <div class="flow" style="line-height:2;">
+      <code>[ 16-bit Magic (0xDE01) ]</code> <span class="muted">← 已隱寫 + 演算法 DE</span><br>
+      <code>[ 8-bit INDEX_BITS ]</code> <span class="muted">← 見下方公式（INDEX_BITS1 = INDEX_BITS2，全封包共用，只寫一次）</span><br>
+      <code>[ 32-bit n ]</code> <span class="muted">← 溢位點數量</span><br>
+      <code>[ INDEX_BITS1 × n ]</code> <span class="muted">← I<sub>ovf</sub>索引清單</span><br>
+      <code>[ 8-bit 檔名長度 ]</code> <span class="muted">← 檔名 UTF-8 位元組數</span><br>
+      <code>[ 檔名 × 8 ]</code> <span class="muted">← 檔案名稱</span><br>
+      <code>[ 16-bit I<sub>weak</sub> 數量 ]</code> <span class="muted">← strict walk 前綴跳過的弱配對數</span><br>
+      <code>[ INDEX_BITS2 × I<sub>weak</sub> ]</code> <span class="muted">← I<sub>weak</sub>索引清單</span><br>
+      <code>[ 32-bit M ]</code> <span class="muted">← DATA 長度（bits）</span><br>
+      <code>[ DATA (M bits) ]</code> <span class="muted">← 承載區（strict 槽）</span><br>
+      <code>[ 32-bit CRC 校驗碼 ]</code>
+    </div>
+    <div class="flow" style="margin-top:10px;font-size:0.88rem;line-height:1.85;">
+      <strong>INDEX_BITS1 / INDEX_BITS2 怎麼算？</strong><br>
+      <code>N</code> = 圖像素對總數（灰階 = 像素÷2；彩色 BGR 拉平 = 像素×3÷2）<br>
+      <code>INDEX_BITS1 = INDEX_BITS2 = max(1, bit_length(N))</code> <span class="muted">← 要能表示 1…N 的 1-based 圖組號</span><br>
+      <code>I<sub>ovf</sub> = INDEX_BITS1 × n</code> <span class="muted">← 溢位索引清單總 bits</span><br>
+      <code>I<sub>weak</sub>區 = INDEX_BITS2 × 弱配對數量</code> <span class="muted">← 弱配對跳過清單總 bits</span><br>
+      <code>H = 16 + 8 + 32 + I<sub>ovf</sub> + 8 + 檔名×8 + 16 + I<sub>weak</sub>區 + 32</code> <span class="muted">← 標頭保留 bit 數（至 M 之前）</span><br>
+      <span class="muted">INDEX_BITS1 與 INDEX_BITS2 數值相同，但對應不同索引清單（I<sub>ovf</sub> 筆數 = n，I<sub>weak</sub> 筆數 = 弱配對數量）。</span>
+    </div>
+    <p class="muted" style="margin-top:10px;margin-bottom:0;">
+      灰階直接 DE；<strong>彩色圖 BGR 拉平（×3 容量）</strong>。CRC32 使用 <code>zlib.crc32()</code>，僅對 DATA 計算。<br>
+      <strong>I<sub>weak</sub> 清單</strong>：嵌入 strict 槽時 walk 跳過的弱配對寫入標頭；解碼讀取後跳過，避免 ghost maybe。
+    </p>
+  </div>
+
+  <div class="card">
+    <h4>演算法流程</h4>
+    <div class="flow">
+      <strong>嵌入：</strong>標頭寫入第 0 組起連續安全區（含 I<sub>weak</sub> 索引清單）→ 承載區 strict 槽寫 DATA+CRC（跳溢位 + 跳弱配對）<br>
+      <strong>提取：</strong>標頭連續讀 → 讀 I<sub>ovf</sub> / I<sub>weak</sub> 索引清單 → 承載 walk 依 I<sub>weak</sub> 排除 ghost → 驗 CRC32<br>
+      <strong>彩色：</strong>B→G→R 拉平，同一套流程
+    </div>
+  </div>
+
+{% endblock %}
+
+{% block extra_title %}其他{% endblock %}
+
+{% block extra_panel %}
+<p class="muted" style="margin:0;">DE 專用擴充區（INDEX_BITS 紀錄、容量探測等）預留於此。</p>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    const coverInput = document.getElementById("coverFile");
+    const secretInput = document.getElementById("secret");
+    const secretFileInput = document.getElementById("secretFile");
+    let coverFile = null, secretFile = null, debounceTimer = null, runId = 0, activePasteZone = "cover";
+
+    function clearSecretFileInput() {
+      secretFile = null;
+      secretFileInput.value = "";
+      const hint = document.getElementById("secretFileHint");
+      hint.style.display = "none";
+      hint.textContent = "";
+    }
+
+    function isProbablyTextFile(file) {
+      if (!file) return false;
+      if (file.type.startsWith("text/")) return true;
+      return /\.(txt|py|js|ts|json|md|html|htm|css|xml|csv|log|ini|cfg|yml|yaml|sh|bat|ps1|c|cpp|h|java|go|rs|sql|rb|php|vue|tsx|jsx)$/i.test(file.name);
+    }
+
+    function hasSecretPayload() {
+      return !!(secretFile || secretInput.value.trim());
+    }
+
+    function appendSecretPayload(fd) {
+      if (secretFile) {
+        fd.append("secret_file", secretFile, secretFile.name);
+        return;
+      }
+      const text = secretInput.value.trim();
+      if (text) fd.append("secret", text);
+    }
+
+    function secretDisplayLabel() {
+      if (secretFile) return `[檔案] ${secretFile.name}`;
+      return secretInput.value.trim();
+    }
+
+    async function setSecretFile(file) {
+      if (!file) {
+        clearSecretFileInput();
+        return;
+      }
+      secretFile = file;
+      assignInputFile(secretFileInput, file);
+      const hint = document.getElementById("secretFileHint");
+      const sizeLabel = formatBytes(file.size);
+      if (isProbablyTextFile(file) && file.size <= 2 * 1024 * 1024) {
+        try {
+          const text = await file.text();
+          if (!text.includes("\0")) {
+            secretInput.value = text;
+            hint.style.display = "block";
+            hint.textContent = `已載入：${file.name}（${sizeLabel}）`;
+            if (coverFile) {
+              if (lastCapAnalysis) refreshCapVizQuick();
+              scheduleRun(runAnalyze);
+            }
+            return;
+          }
+        } catch (_) { /* fall through to binary */ }
+      }
+      secretInput.value = "";
+      hint.style.display = "block";
+      hint.innerHTML = `已選擇：<strong>${file.name}</strong>（${sizeLabel}）<span class="muted"> — 以原始 bytes 嵌入</span>`;
+      if (coverFile) {
+        if (lastCapAnalysis) refreshCapVizQuick();
+        scheduleRun(runAnalyze);
+      }
+    }
+
+    function assignInputFile(input, file) {
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      input.files = dt.files;
+    }
+
+    function imageFromClipboardEvent(e) {
+      const items = e.clipboardData && e.clipboardData.items;
+      if (!items) return null;
+      for (const item of items) {
+        if (!item.type.startsWith("image/")) continue;
+        const blob = item.getAsFile();
+        if (!blob) continue;
+        const ext = (item.type.split("/")[1] || "png").replace("jpeg", "jpg");
+        return new File([blob], `pasted-${Date.now()}.${ext}`, { type: item.type });
+      }
+      return null;
+    }
+
+    function setCoverFile(file) {
+      coverFile = file || null;
+      if (coverFile) assignInputFile(coverInput, coverFile);
+      document.getElementById("fname").textContent = coverFile ? coverFile.name : "";
+      if (coverFile) scheduleRun(runAnalyze);
+    }
+
+    document.querySelectorAll("[data-paste-zone]").forEach((el) => {
+      const zone = el.dataset.pasteZone;
+      el.addEventListener("click", () => { activePasteZone = zone; });
+      el.addEventListener("mouseenter", () => { activePasteZone = zone; });
+    });
+
+    document.addEventListener("paste", (e) => {
+      if (e.target.closest("textarea")) return;
+      const file = imageFromClipboardEvent(e);
+      if (!file) return;
+      e.preventDefault();
+      if (activePasteZone === "stego") {
+        setStegoFile(file);
+      } else {
+        setCoverFile(file);
+      }
+    });
+
+    function setImage(id, dataUrl) {
+      const box = document.getElementById(id);
+      if (!dataUrl) { box.className = "placeholder"; box.textContent = "無資料"; return; }
+      box.className = "";
+      box.innerHTML = `<img src="${dataUrl}" alt="preview">`;
+    }
+
+    function setStatus(msg) { document.getElementById("status").textContent = msg || ""; }
+
+    function formatTimingMs(data) {
+      if (!data || data.server_ms == null) return "";
+      const t = data.timing || data.embed?.timing || data.extract?.timing || data.analysis?.timing_ms || {};
+      const parts = [`伺服器 ${data.server_ms} ms`];
+      if (t.de_loc_map_ms != null) parts.push(`DE差值判斷 ${t.de_loc_map_ms} ms`);
+      if (t.analyze_total_ms != null) parts.push(`分析 ${t.analyze_total_ms} ms`);
+      if (t.embed_ms != null) parts.push(`嵌入 ${t.embed_ms} ms`);
+      if (t.verify_ms != null) parts.push(`驗證 ${t.verify_ms} ms`);
+      if (t.extract_ms != null) parts.push(`提取 ${t.extract_ms} ms`);
+      if (t.analyze_ms != null && t.analyze_total_ms == null) parts.push(`分析 ${t.analyze_ms} ms`);
+      return `（${parts.join(" · ")}）`;
+    }
+
+    function setDownloads(stegoDataUrl, downloadName) {
+      const dlStego = document.getElementById("dlStego");
+      if (stegoDataUrl) {
+        dlStego.href = stegoDataUrl;
+        dlStego.download = downloadName || "stego_DE.png";
+        dlStego.classList.remove("disabled");
+      } else {
+        dlStego.href = "#";
+        dlStego.classList.add("disabled");
+      }
+    }
+
+    function formatBytes(n) {
+      if (n > 10240) return (n / 1024).toFixed(1) + " KB";
+      return n + " bytes";
+    }
+
+    function formatImageStats(s) {
+      if (!s) return "";
+      const mode = s.mode === "color" ? "彩色" : "灰階";
+      let line = `${mode} · 尺寸 ${s.width}×${s.height} · 像素對 ${s.pair_total} 組 · 溢位 n=${s.overflow_count}`;
+      if (s.overflow_first != null && s.overflow_last != null) {
+        line += ` · 溢位範圍 第 ${s.overflow_first} ～ ${s.overflow_last} 組`;
+      }
+      return line;
+    }
+
+    function setImageStats(s, boxId = "imageStats") {
+      const box = document.getElementById(boxId);
+      if (!s) {
+        box.style.display = "none";
+        box.textContent = "";
+        return;
+      }
+      box.style.display = "block";
+      box.textContent = formatImageStats(s);
+    }
+
+    function pctOf(value, base) {
+      if (!base || base <= 0) return 0;
+      return Math.min(100, Math.round(value / base * 1000) / 10);
+    }
+
+    function fmtPct(value, base) {
+      return `${pctOf(value, base).toFixed(1)}%`;
+    }
+
+    function assignPercentsExact(parts, total) {
+      if (!total || !parts.length) return [];
+      const tenths = parts.map((p) => (p.value / total) * 1000);
+      const floors = tenths.map((t) => Math.floor(t));
+      let rem = 1000 - floors.reduce((a, b) => a + b, 0);
+      const order = tenths
+        .map((t, i) => ({ i, frac: t - floors[i] }))
+        .sort((a, b) => b.frac - a.frac);
+      for (let k = 0; k < rem; k++) {
+        floors[order[k % order.length].i] += 1;
+      }
+      return parts.map((p, i) => ({
+        ...p,
+        pct: floors[i] / 10,
+      }));
+    }
+
+    const CAP_CHART_COLORS = {
+      overflow: "#ef4444",
+      header: "#f59e0b",
+      payload: "#38bdf8",
+      strict: "#c084fc",
+      weak: "#67e8f9",
+      secret: "#c084fc",
+      safe: "#22c55e",
+      rest: "#64748b",
+      "bit-magic": "#818cf8",
+      "bit-idx": "#2dd4bf",
+      "bit-n": "#facc15",
+      "bit-iovf": "#f87171",
+      "bit-name": "#60a5fa",
+      "bit-weak": "#d8b4fe",
+      "bit-m": "#fb923c",
+    };
+
+    function capChartLegendHtml(segs) {
+      return segs
+        .map((s) => `<span class="${s.legendCls || "lg-" + s.cls}">${s.label}（${s.pct}%）</span>`)
+        .join("");
+    }
+
+    function buildCapBarChart(segs) {
+      const track = segs
+        .map((s) => `<div class="cap-stack-seg ${s.cls}" style="width:${s.pct}%" title="${s.label}"></div>`)
+        .join("");
+      return `
+        <div class="cap-stack-wrap">
+          <div class="cap-stack-track">${track}</div>
+          <div class="cap-stack-legend">${capChartLegendHtml(segs)}</div>
+        </div>`;
+    }
+
+    function buildCapPieChart(segs) {
+      let acc = 0;
+      const stops = segs.map((s) => {
+        const c = CAP_CHART_COLORS[s.cls] || "#64748b";
+        const from = acc;
+        acc += s.pct;
+        return `${c} ${from}% ${acc}%`;
+      });
+      return `
+        <div class="cap-pie-wrap">
+          <div class="cap-pie" style="background:conic-gradient(${stops.join(", ")})"></div>
+          <div class="cap-stack-legend">${capChartLegendHtml(segs)}</div>
+        </div>`;
+    }
+
+    function computeCapModel(a) {
+      const T = a.pair_total;
+      const O = a.overflow_count ?? 0;
+      const safe = a.safe_pairs ?? Math.max(0, T - O);
+      const H = a.header_reserved_bits ?? 0;
+      const cap = a.capacity || {};
+      const theoreticalBits = cap.cap_strict_data_bits ?? a.max_data_bits ?? 0;
+      const guaranteedBits = a.max_data_bits_guaranteed ?? theoreticalBits;
+      const secretBits = a.secret_bits ?? 0;
+      const secretBytes = a.secret_bytes ?? Math.ceil(secretBits / 8);
+      const guaranteedBytes = a.max_text_bytes_guaranteed ?? a.max_text_bytes ?? Math.floor(guaranteedBits / 8);
+      const embedCapBits = Math.max(1, H + guaranteedBits);
+      const remainDataBits = Math.max(0, guaranteedBits - secretBits);
+      const overDataBits = Math.max(0, secretBits - guaranteedBits);
+
+      return {
+        T, O, safe, H, secretBits, secretBytes,
+        theoreticalBits, guaranteedBits, guaranteedBytes, embedCapBits,
+        remainDataBits, overDataBits,
+        fits: a.fits, embedFeasible: a.embed_feasible,
+      };
+    }
+
+    function localSecretByteCount() {
+      if (secretFile) return secretFile.size;
+      const text = secretInput.value;
+      if (!text) return 0;
+      return new TextEncoder().encode(text).length;
+    }
+
+    function patchAnalysisWithLocalSecret(a) {
+      if (!a) return a;
+      const bytes = localSecretByteCount();
+      const bits = bytes * 8;
+      return {
+        ...a,
+        secret_bytes: bytes,
+        secret_bits: bits,
+        fits: bits > 0 ? bits <= (a.max_data_bits_guaranteed ?? a.max_data_bits ?? 0) : a.fits,
+      };
+    }
+
+    function buildCapBarSection(title, desc, segs) {
+      return `
+        <div class="cap-chart-section">
+          <h5 class="cap-chart-title">${title}</h5>
+          ${desc ? `<p class="cap-chart-desc">${desc}</p>` : ""}
+          ${buildCapBarChart(segs)}
+        </div>`;
+    }
+
+    function buildCapKvPanel(title, rows) {
+      const body = rows.map((r) => {
+        const valCls = r.valClass ? ` ${r.valClass}` : "";
+        return `
+          <div class="cap-kv-row">
+            <span class="cap-kv-label">${r.label}</span>
+            <span class="cap-kv-value${valCls}">${r.value}</span>
+          </div>`;
+      }).join("");
+      return `<div class="cap-kv-panel"><h5>${title}</h5>${body}</div>`;
+    }
+
+    function buildUsageChartSegs(m) {
+      if (m.overDataBits > 0) {
+        const total = Math.max(1, m.H + m.secretBits);
+        return assignPercentsExact([
+          { cls: "header", legendCls: "lg-header", value: m.H, label: `標頭 ${m.H.toLocaleString()} bits` },
+          { cls: "secret", legendCls: "lg-secret", value: m.guaranteedBits, label: `已嵌入 ${m.guaranteedBits.toLocaleString()} bits` },
+          { cls: "overflow", legendCls: "lg-overflow", value: m.overDataBits, label: `超出 ${m.overDataBits.toLocaleString()} bits` },
+        ], total);
+      }
+      const parts = [
+        { cls: "header", legendCls: "lg-header", value: m.H, label: `標頭 ${m.H.toLocaleString()} bits` },
+      ];
+      if (m.secretBits > 0) {
+        parts.push({ cls: "secret", legendCls: "lg-secret", value: m.secretBits, label: `已嵌入 ${m.secretBits.toLocaleString()} bits` });
+      }
+      const remain = m.secretBits > 0 ? m.remainDataBits : m.guaranteedBits;
+      if (remain > 0) {
+        parts.push({ cls: "rest", legendCls: "lg-rest", value: remain, label: `剩餘 ${remain.toLocaleString()} bits` });
+      }
+      return assignPercentsExact(parts, m.embedCapBits);
+    }
+
+    function buildCapacityViz(a) {
+      if (!a || a.pair_total == null) return "";
+
+      const patched = patchAnalysisWithLocalSecret(a);
+      const m = computeCapModel(patched);
+      const locMapBits = a.loc_map_bits ?? a.pair_total ?? m.T;
+      const hwIter = a.guaranteed_hw_iterations ?? "—";
+      const w = a.display_width ?? a.width ?? "—";
+      const h = a.display_height ?? a.height ?? "—";
+      const utilPct = m.secretBits > 0 && m.guaranteedBits > 0
+        ? `${(m.secretBits / m.guaranteedBits * 100).toFixed(1)}%`
+        : "—";
+      let utilCls = "";
+      if (m.secretBits > 0) {
+        if (m.fits === false) utilCls = "bad";
+        else if (m.embedFeasible === false) utilCls = "warn";
+        else utilCls = "ok";
+      }
+
+      const pairChart = assignPercentsExact([
+        { cls: "overflow", legendCls: "lg-overflow", value: m.O, label: `溢位點 ${m.O.toLocaleString()}` },
+        { cls: "safe", legendCls: "lg-safe", value: m.safe, label: `安全配對 ${m.safe.toLocaleString()}` },
+      ], m.T);
+
+      const usageChart = buildUsageChartSegs(m);
+
+      const headerPanel = buildCapKvPanel("③ 標頭組成", [
+        { label: "寬度", value: `${w} px` },
+        { label: "高度", value: `${h} px` },
+        { label: "迭代次數", value: `${hwIter} <span class="muted">（H+W 公式迭代）</span>` },
+        {
+          label: "Location Map 大小",
+          value: `${locMapBits.toLocaleString()} bits <span class="muted">· 封包僅存 ${(a.overflow_count ?? 0).toLocaleString()} 個溢位索引</span>`,
+        },
+      ]);
+
+      const statsPanel = buildCapKvPanel("容量統計", [
+        { label: "總配對數", value: `${m.T.toLocaleString()} 組` },
+        { label: "安全配對", value: `${m.safe.toLocaleString()} 組 <span class="muted">(${fmtPct(m.safe, m.T)})</span>` },
+        { label: "理論容量", value: `${m.theoreticalBits.toLocaleString()} bits` },
+        { label: "可保證容量", value: `${m.guaranteedBits.toLocaleString()} bits` },
+        {
+          label: "目前已嵌入資料",
+          value: m.secretBits > 0
+            ? `${m.secretBits.toLocaleString()} bits <span class="muted">(${formatBytes(m.secretBytes)})</span>`
+            : `<span class="muted">0 bits</span>`,
+        },
+        { label: "資料使用率", value: utilPct, valClass: utilCls },
+      ]);
+
+      return `
+        <div class="cap-viz" id="capVizRoot">
+          <div class="cap-viz-head"><h4>容量分布</h4></div>
+          ${buildCapBarSection(
+            "① 配對分類",
+            `（溢位點 + 安全配對 = 總配對數 ${m.T.toLocaleString()} 組）`,
+            pairChart
+          )}
+          ${buildCapBarSection(
+            "② 容量使用情況",
+            `（標頭 + 已嵌入資料 + 剩餘可用容量 = 可嵌入容量 ${m.embedCapBits.toLocaleString()} bits）`,
+            usageChart
+          )}
+          <div class="cap-viz-bottom">
+            ${headerPanel}
+            ${statsPanel}
+          </div>
+        </div>`;
+    }
+
+    function refreshCapVizQuick() {
+      if (!lastCapAnalysis) return;
+      const box = document.getElementById("capViz");
+      if (!box) return;
+      box.innerHTML = buildCapacityViz(lastCapAnalysis);
+    }
+
+    let lastCapAnalysis = null;
+
+    function setCapacityViz(a) {
+      const box = document.getElementById("capViz");
+      if (!a || a.pair_total == null) {
+        box.style.display = "none";
+        box.innerHTML = "";
+        lastCapAnalysis = null;
+        return;
+      }
+      lastCapAnalysis = a;
+      box.style.display = "block";
+      box.innerHTML = buildCapacityViz(a);
+    }
+
+    function showAnalysis(a, secretText) {
+      document.getElementById("capInfo").innerHTML = formatCapacity(a);
+      setCapacityViz(a);
+      setPacketDynamic(a, secretText);
+    }
+
+    function hideCompatScore() {}
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function formatEmbedError(msg) {
+      if (!msg) return "";
+      const parts = String(msg).split("\n--- 診斷 ---\n");
+      if (parts.length < 2) {
+        return `<div class="cap-error-detail">${escapeHtml(msg)}</div>`;
+      }
+      return (
+        `<div class="cap-line"><span class="bad">${escapeHtml(parts[0])}</span></div>`
+        + `<div class="cap-error-detail">${escapeHtml(parts[1])}</div>`
+      );
+    }
+
+    function formatWeakPairPool(a) {
+      const s = a.payload_strict_pairs ?? 0;
+      const w0 = a.payload_weak_bit0_only ?? 0;
+      const w1 = a.payload_weak_bit1_only ?? 0;
+      if (w0 === 0 && w1 === 0) return "";
+      return `承載區弱配對分布：嚴格 0/1 皆可 ${s.toLocaleString()} 組`
+        + (w0 ? ` · 僅藏 0 可 ${w0.toLocaleString()} 組` : "")
+        + (w1 ? ` · 僅藏 1 可 ${w1.toLocaleString()} 組` : "");
+    }
+
+    function formatTierDetail(a, tier) {
+      const s = a.payload_strict_pairs ?? 0;
+      const w0 = a.payload_weak_bit0_only ?? 0;
+      const w1 = a.payload_weak_bit1_only ?? 0;
+      if (tier === "pessimistic") {
+        const parts = [`計入 ${s.toLocaleString()} 組（僅嚴格）`];
+        if (w0 || w1) {
+          parts.push(`略過弱配對 ${(w0 + w1).toLocaleString()} 組`);
+        }
+        return `（${parts.join(" · ")}）`;
+      }
+      const total = s + w0 + w1;
+      const bits = [];
+      if (s) bits.push(`嚴格 ${s.toLocaleString()}`);
+      if (w0) bits.push(`僅藏 0 可 ${w0.toLocaleString()}`);
+      if (w1) bits.push(`僅藏 1 可 ${w1.toLocaleString()}`);
+      return `（計入 ${total.toLocaleString()} 組 = ${bits.join(" + ")}）`;
+    }
+
+    function formatCapacity(a) {
+      const modeLabel = a.mode === "color"
+        ? `<span class="ok">彩色 BGR 拉平（容量 ×3）</span>`
+        : "灰階";
+      const cap = a.capacity || {};
+      const capOk = a.capacity_ok ?? cap.capacity_ok;
+      const limitLabels = {
+        gate: "門檻未過（標頭寫不入）",
+        strict_payload: "嚴格承載槽",
+        loose_payload: "寬鬆承載槽",
+        none: "無可用承載",
+      };
+      const limitLabel = limitLabels[a.limiting_factor ?? cap.limiting_factor] || "";
+      const lines = [
+        `模式：${modeLabel}`,
+        `顯示尺寸：${a.display_width || a.width} × ${a.display_height || a.height}`,
+        `像素對 T = ${(cap.cap_T ?? a.pair_total).toLocaleString()}，安全配對（非溢位）= ${(cap.cap_safe_pairs ?? a.safe_pairs).toLocaleString()}（T−O，loc_map=1），溢位 O = ${(cap.cap_O ?? a.overflow_count ?? 0).toLocaleString()}（loc_map=0）`,
+        a.overflow_count > 0 && a.overflow_first != null
+          ? `第一個溢位點：<span class="warn">第 ${a.overflow_first.toLocaleString()} 組</span>`
+          : a.overflow_count === 0
+          ? `<span class="ok">無溢位點</span>`
+          : null,
+        a.overflow_count > 0 && a.overflow_last != null
+          ? `最後一個溢位點：<span class="warn">第 ${a.overflow_last.toLocaleString()} 組</span>（共 ${a.overflow_count.toLocaleString()} 組）`
+          : null,
+        `① 連續安全區 C = ${(cap.cap_C ?? a.continuous_safe ?? "?").toLocaleString()}，標頭 H = ${(cap.cap_H ?? a.header_reserved_bits ?? "?").toLocaleString()} bits${cap.gate_continuous_safe === false ? ' <span class="bad">（C&lt;H）</span>' : cap.gate_continuous_safe ? " <span class=\"ok\">（通過）</span>" : a.header_region_ok === false ? ' <span class="bad">（C&lt;H）</span>' : ""}`,
+        cap.overflow_in_header_zone
+          ? `<span class="bad">② 標頭區 [1..H] 內有溢位點 → 容量歸零</span>`
+          : cap.gate_header_no_overflow === false
+          ? `<span class="bad">② 標頭區有溢位</span>`
+          : `② 標頭區無溢位 <span class="ok">（通過）</span>`,
+        cap.cap_loose_data_bits != null
+          ? `③ 寬鬆上限 (T−O)−H−32 ≈ ${formatBytes(Math.floor(cap.cap_loose_data_bits / 8))}（${cap.cap_loose_data_bits.toLocaleString()} bits）`
+          : null,
+        cap.cap_strict_data_bits != null
+          ? `④ 嚴格槽公式（H₀、W=0）≈ ${formatBytes(Math.floor(cap.cap_strict_data_bits / 8))}（${cap.cap_strict_data_bits.toLocaleString()} bits）`
+          : null,
+        a.max_data_bits_guaranteed != null
+          ? `⑤ 可保證 DATA（H+W 随長度迭代）≈ ${formatBytes(a.max_text_bytes_guaranteed ?? 0)}（${a.max_data_bits_guaranteed.toLocaleString()} bits）`
+          : null,
+        formatWeakPairPool(a) || null,
+        capOk === false
+          ? `<span class="bad">可保證 DATA = 0（門檻未過${cap.capacity_gate_reasons?.length ? "：" + cap.capacity_gate_reasons.join("、") : ""}）</span>`
+          : `<span class="ok">可保證 DATA ≈ ${formatBytes(a.max_text_bytes_guaranteed ?? a.max_text_bytes ?? cap.max_text_bytes ?? 0)}</span>${limitLabel ? ` <span class="muted">（瓶頸：${limitLabel}）</span>` : ""}`,
+        `運氣不好（弱配對預設塞<span class="bad">會爆</span>的 bit）：≈ ${formatBytes(a.max_data_bytes_pessimistic ?? a.max_text_bytes ?? 0)} ${formatTierDetail(a, "pessimistic")}`,
+        `理想（弱配對預設塞<span class="ok">不會爆</span>的 bit）：≈ ${formatBytes(a.max_data_bytes_optimistic ?? 0)} ${formatTierDetail(a, "optimistic")}`,
+      ].filter(Boolean);
+      let embedBlock = "";
+      if (a.secret_bits > 0) {
+        lines.push(`目前 DATA 需要：${a.secret_bits} bits，封包總計 ${a.required_bits} bits`);
+        if (a.weak_skip_count != null && a.weak_skip_count > 0) {
+          const preview = (a.weak_skip_indices || []).slice(0, 8).join(", ");
+          const suffix = a.weak_skip_count > 8 ? ` …共 ${a.weak_skip_count} 組` : "";
+          lines.push(`I<sub>weak</sub> 索引 = <strong>${a.weak_skip_count}</strong> 筆（圖組：${preview}${suffix}）`);
+        } else if (a.weak_skip_count === 0) {
+          lines.push(`I<sub>weak</sub> 索引 = 0（本 DATA 長度下 walk 前綴無需跳過弱槽）`);
+        }
+        if (a.embed_error) {
+          embedBlock = formatEmbedError(a.embed_error);
+        } else if (a.fits) {
+          lines.push(`<span class="ok">公式容量足夠，可嵌入</span>`);
+          if (a.embed_feasible === false) {
+            lines.push(`<span class="warn">像素試算未通過（標頭/弱配對 bit 擴張），請縮小 DATA 或換封面</span>`);
+          }
+        } else {
+          lines.push(`<span class="bad">超出可保證上限（${formatBytes(a.max_text_bytes_guaranteed ?? a.max_text_bytes ?? 0)}）</span>`);
+        }
+      }
+      return lines.map(l => `<div class="cap-line">${l}</div>`).join("") + embedBlock;
+    }
+
+    function formatOverflow(msg, pairs, a) {
+      if (!msg && (!pairs || !pairs.length)) return "";
+      const range = (a && a.overflow_first != null)
+        ? `<div class="cap-line"><span class="warn">溢位：最早嵌入流 bit <strong>${a.overflow_first_embed_bit != null ? a.overflow_first_embed_bit.toLocaleString() : "?"}</strong>（圖第 ${a.overflow_first} 組）→ 最晚 bit <strong>${a.overflow_last_embed_bit != null ? a.overflow_last_embed_bit.toLocaleString() : "?"}</strong>（圖第 ${a.overflow_last} 組）</span></div>`
+        : "";
+      const text = msg || `第 ${pairs.slice(0, 30).join(", ")} 組` + (pairs.length > 30 ? ` …共 ${pairs.length} 組` : "");
+      return range + `<span class="warn">溢位組別（loc_map=0）：${text}</span>`;
+    }
+
+    function formatPacketDynamic(a, secretText) {
+      if (!a || a.pair_total == null) return "";
+      const n = a.overflow_count ?? 0;
+      const ib = a.index_bits ?? 0;
+      const idxTotal = ib * n;
+      const m = a.secret_bits ?? 0;
+      const fname = a.secret_filename || "secret.txt";
+      const lLen = new TextEncoder().encode(fname).length;
+      const nameBits = lLen * 8;
+      const wCount = a.weak_skip_count ?? 0;
+      const wBits = wCount * ib;
+      const hdr = a.header_reserved_bits ?? (56 + idxTotal + 8 + nameBits + 16 + wBits + 32);
+      const omap = a.overflow_embed_map || [];
+      const weakList = a.weak_skip_indices || [];
+      const omapTotal = a.overflow_embed_map_total || n;
+      const omapTruncated = omapTotal > omap.length;
+
+      const pMagic = 0;
+      const pIdxBits = 16;
+      const pN = 24;
+      const pIndices = 56;
+      const pL = pIndices + idxTotal;
+      const pName = pL + 8;
+      const pW = pName + nameBits;
+      const pWList = pW + 16;
+      const pM = pWList + wBits;
+      const pData = pM + 32;
+      const pCrc = pData + m;
+      const total = pCrc + 32;
+
+      const row = (pos, body, rangeEnd, extraClass) => {
+        const range = rangeEnd != null && rangeEnd >= pos
+          ? ` <span class="muted">（bit ${pos.toLocaleString()}–${rangeEnd.toLocaleString()}）</span>`
+          : "";
+        const cls = extraClass ? ` pkt-row ${extraClass}` : " pkt-row";
+        const posLabel = pos === "" ? "" : pos.toLocaleString();
+        return `<div class="${cls.trim()}"><span class="pkt-pos">${posLabel}</span><span class="pkt-body">${body}${range}</span></div>`;
+      };
+
+      const dataHint = m > 0
+        ? `${m} bits${secretText ? ` · 「${secretText.length > 24 ? secretText.slice(0, 24) + "…" : secretText}」` : ""}`
+        : "（輸入 DATA 後顯示長度）";
+      const dataRangeEnd = m > 0 ? pData + m - 1 : null;
+      const idxRangeEnd = idxTotal > 0 ? pL - 1 : null;
+      const nameRangeEnd = nameBits > 0 ? pName + nameBits - 1 : null;
+
+      const items = [];
+
+      const add = (pos, order, html) => items.push({ pos, order, html });
+
+      add(pMagic, 0, row(pMagic,
+        `<code>[ 16-bit Magic ]</code> <span class="muted">← 固定 <span class="dyn-val">0xDE01</span>（已隱寫 + DE）</span>`,
+        pMagic + 15));
+      add(pIdxBits, 1, row(pIdxBits,
+        `<code>[ 8-bit INDEX_BITS ]</code> <span class="muted">← INDEX_BITS1 = INDEX_BITS2</span> <span class="dyn-val">${ib}</span>`
+        + ` <span class="muted">（max(1, bit_length(N))，N=${a.pair_total.toLocaleString()}）</span>`,
+        pIdxBits + 7));
+      add(pN, 2, row(pN,
+        `<code>[ 32-bit 溢位點數 n ]</code> <span class="muted">←</span> <span class="dyn-val">${n.toLocaleString()}</span>`,
+        pN + 31));
+
+      if (n > 0) {
+        add(pIndices, 3, row(pIndices,
+          `<code>[ INDEX_BITS1 × n ]</code> <span class="muted">← I<sub>ovf</sub>索引清單</span> <span class="dyn-val">${ib} × ${n.toLocaleString()} = ${idxTotal.toLocaleString()} bits</span>`,
+          idxRangeEnd));
+
+        omap.forEach((om) => {
+          add(om.index_bit_start, 4, row(om.index_bit_start,
+            `<code>[ I<sub>ovf</sub> #${om.index_entry} ]</code> <span class="muted">封包</span> bit <span class="dyn-val">${om.index_bit_start.toLocaleString()}–${om.index_bit_end.toLocaleString()}</span>`
+            + ` <span class="muted">· INDEX_BITS1=${ib} · 圖第 <span class="dyn-val">${om.pair.toLocaleString()}</span> 組</span>`
+            + ` <span class="muted">· 嵌入流 <span class="dyn-val">bit ${om.embed_bit.toLocaleString()}</span>（${om.field}）</span>`,
+            om.index_bit_end));
+
+          if (om.zone === "header") {
+            add(om.embed_bit, 5, row(om.embed_bit,
+              `<span class="dyn-warn">⊘ 溢位跳過</span> 嵌入流 <span class="dyn-val">bit ${om.embed_bit.toLocaleString()}</span>`
+              + ` <span class="muted">· 圖第 ${om.pair.toLocaleString()} 組 · 落在 <strong>${om.field}</strong> 寫入路徑（標頭連續區）</span>`,
+              null, "pkt-gap"));
+          } else if (om.embed_bit < total) {
+            add(om.embed_bit, 5, row(om.embed_bit,
+              `<span class="dyn-warn">⊘ 承載溢位</span> 嵌入流 <span class="dyn-val">bit ${om.embed_bit.toLocaleString()}</span>`
+              + ` <span class="muted">· 圖第 ${om.pair.toLocaleString()} 組 · 承載區跳過</span>`,
+              null, "pkt-gap"));
+          }
+        });
+        if (omapTruncated) {
+          add(pIndices + 1, 4, row("",
+            `<span class="muted">…索引清單另有 ${(omapTotal - omap.length).toLocaleString()} 筆未展開（共 ${omapTotal.toLocaleString()} 筆）</span>`));
+        }
+      }
+
+      add(pL, 6, row(pL,
+        `<code>[ 8-bit 檔名長度 ]</code> <span class="muted">←</span> <span class="dyn-val">${lLen}</span>`,
+        pL + 7));
+      add(pName, 7, row(pName,
+        `<code>[ 檔名 × 8 ]</code> <span class="muted">←</span> <span class="dyn-val">${fname}</span>`,
+        nameRangeEnd));
+
+      add(pW, 8, row(pW,
+        `<code>[ 16-bit I<sub>weak</sub> 數量 ]</code> <span class="muted">←</span> <span class="dyn-val">${wCount.toLocaleString()}</span>`,
+        pW + 15));
+
+      if (wCount > 0) {
+        add(pWList, 9, row(pWList,
+          `<code>[ INDEX_BITS2 × I<sub>weak</sub> ]</code> <span class="muted">← I<sub>weak</sub>索引清單</span> <span class="dyn-val">${ib} × ${wCount.toLocaleString()} = ${wBits.toLocaleString()} bits</span>`,
+          wBits > 0 ? pWList + wBits - 1 : pWList));
+        const showW = Math.min(wCount, 12);
+        for (let wi = 0; wi < showW; wi++) {
+          const pairNum = weakList[wi];
+          const wStart = pWList + wi * ib;
+          add(wStart, 10, row(wStart,
+            `<code>[ I<sub>weak</sub> #${wi + 1} ]</code> <span class="muted">封包</span> bit <span class="dyn-val">${wStart.toLocaleString()}–${(wStart + ib - 1).toLocaleString()}</span>`
+            + ` <span class="muted">· INDEX_BITS2=${ib} · 解碼跳過圖第 <span class="dyn-val">${pairNum != null ? pairNum.toLocaleString() : "?"}</span> 組</span>`,
+            wStart + ib - 1));
+        }
+        if (wCount > showW) {
+          add(pWList + 1, 10, row("",
+            `<span class="muted">…另有 ${(wCount - showW).toLocaleString()} 筆弱配對跳過未展開</span>`));
+        }
+      }
+
+      add(pM, 11, row(pM,
+        `<code>[ 32-bit 資料長度 M ]</code> <span class="muted">←</span> <span class="dyn-val">${m} bits</span>`,
+        pM + 31));
+      add(pData, 12, row(pData,
+        `<code>[ DATA ]</code> <span class="muted">←</span> ${dataHint}`,
+        dataRangeEnd));
+      add(pCrc, 13, row(pCrc,
+        `<code>[ 32-bit CRC 校驗碼 ]</code>`,
+        pCrc + 31));
+
+      const payloadFarCount = n > 0 && a.overflow_last_embed_bit != null && a.overflow_last_embed_bit >= total
+        ? n - omap.filter((om) => om.zone === "payload" && om.embed_bit < total).length
+        : 0;
+      if (a.overflow_first_embed_bit != null && a.overflow_last_embed_bit != null
+          && a.overflow_last_embed_bit >= total && payloadFarCount > 0) {
+        add(total, 9, row("",
+          `<span class="muted">承載區溢位跳過點（嵌入流超出本封包 ${total.toLocaleString()} bits）：</span>`
+          + ` 最早 <span class="dyn-val">bit ${a.overflow_first_embed_bit.toLocaleString()}</span>（圖第 ${a.overflow_first.toLocaleString()} 組）`
+          + ` → 最晚 <span class="dyn-val">bit ${a.overflow_last_embed_bit.toLocaleString()}</span>（圖第 ${a.overflow_last.toLocaleString()} 組）`
+          + ` <span class="muted">· 承載區溢位共 ${n.toLocaleString()} 處</span>`));
+      } else {
+        const payloadFar = omap.filter((om) => om.zone === "payload" && om.embed_bit >= total);
+        if (payloadFar.length) {
+          const first = payloadFar[0];
+          const last = payloadFar[payloadFar.length - 1];
+          add(total, 9, row("",
+            `<span class="muted">承載區溢位跳過點（嵌入流超出本封包 ${total.toLocaleString()} bits）：</span>`
+            + ` 最早 <span class="dyn-val">bit ${first.embed_bit.toLocaleString()}</span>（圖第 ${first.pair.toLocaleString()} 組）`
+            + ` → 最晚 <span class="dyn-val">bit ${last.embed_bit.toLocaleString()}</span>（圖第 ${last.pair.toLocaleString()} 組）`
+            + ` <span class="muted">· 共 ${payloadFar.length} 處</span>`));
+          const showLimit = 8;
+          payloadFar.slice(0, showLimit).forEach((om) => {
+            add(total + om.index_entry, 10, row("",
+              `<span class="dyn-warn">⊘</span> 嵌入流 <span class="dyn-val">bit ${om.embed_bit.toLocaleString()}</span>`
+              + ` · 圖第 ${om.pair.toLocaleString()} 組 <span class="muted">（承載區 · ${om.field}）</span>`,
+              null, "pkt-gap"));
+          });
+          if (payloadFar.length > showLimit) {
+            add(total + 99, 10, row("",
+              `<span class="muted">…另有 ${payloadFar.length - showLimit} 處承載溢位（嵌入流皆 ≥ ${total.toLocaleString()}）</span>`));
+          }
+        }
+      }
+
+      items.sort((x, y) => x.pos - y.pos || x.order - y.order);
+
+      const embedSummary = (a.overflow_first_embed_bit != null)
+        ? `最早溢位嵌入流 <span class="dyn-val">bit ${a.overflow_first_embed_bit.toLocaleString()}</span>（圖第 ${a.overflow_first.toLocaleString()} 組）`
+          + ` · 最晚 <span class="dyn-val">bit ${a.overflow_last_embed_bit.toLocaleString()}</span>（圖第 ${a.overflow_last.toLocaleString()} 組）`
+        : "";
+
+      return `
+        <p class="muted" style="margin:0 0 8px;font-size:0.82rem;">
+          左側 = 封包位元流絕對起始 bit；<strong>嵌入流 bit</strong> = 圖第 0 組起依序寫入時的 bit 序號（標頭 1:1，承載跳溢位）
+        </p>
+        ${embedSummary ? `<p class="muted" style="margin:0 0 8px;font-size:0.82rem;">${embedSummary}</p>` : ""}
+        <div class="packet-dynamic flow">
+          ${items.map((it) => it.html).join("")}
+          <div class="pkt-row" style="margin-top:8px;">
+            <span class="pkt-pos"></span>
+            <span class="pkt-body muted">
+              標頭 bit 0–${(pData - 1).toLocaleString()}（${hdr.toLocaleString()} bits，第 0 組起連續寫入）
+              · 承載 bit ${pData.toLocaleString()}–${(total - 1).toLocaleString()}（跳過溢位）
+              · 封包共 ${total.toLocaleString()} bits
+            </span>
+          </div>
+        </div>`;
+    }
+
+    function setPacketDynamic(a, secretText) {
+      const drawer = document.getElementById("packetDrawer");
+      const box = document.getElementById("packetDynamic");
+      const hint = document.getElementById("packetDrawerHint");
+      if (!a || a.pair_total == null) {
+        drawer.style.display = "none";
+        drawer.open = false;
+        box.innerHTML = "";
+        if (hint) hint.textContent = "";
+        return;
+      }
+      drawer.style.display = "block";
+      const n = a.overflow_count ?? 0;
+      const m = a.secret_bits ?? 0;
+      if (hint) {
+        const wHint = (a.weak_skip_count != null && a.weak_skip_count > 0)
+          ? ` · Iweak=${a.weak_skip_count.toLocaleString()}`
+          : "";
+        hint.textContent = n > 0 || m > 0
+          ? `（N=${a.pair_total.toLocaleString()} · 溢位 n=${n.toLocaleString()}${wHint} · ${a.secret_filename || "secret.txt"}${m > 0 ? ` · DATA ${m} bits` : ""}）`
+          : `（N=${a.pair_total.toLocaleString()}）`;
+      }
+      box.innerHTML = formatPacketDynamic(a, secretText || "");
+    }
+
+    function clearPacketDynamic() {
+      setPacketDynamic(null);
+    }
+
+    function fdBase() {
+      const fd = new FormData();
+      if (!coverFile) throw new Error("請先選擇圖片");
+      fd.append("cover_file", coverFile);
+      return fd;
+    }
+
+    async function post(url, fd) {
+      const res = await fetch(url, { method: "POST", body: fd });
+      const data = await res.json();
+      if (!data.ok) {
+        if (data.already_stego && data.stego_check) {
+          const err = new Error(data.error || "此圖已隱寫過");
+          err.alreadyStego = true;
+          err.stegoCheck = data.stego_check;
+          err.coverPreview = data.cover_preview;
+          err.imageStats = data.image_stats;
+          throw err;
+        }
+        const err = new Error(data.error || "失敗");
+        err.apiData = data;
+        throw err;
+      }
+      return data;
+    }
+
+    function formatStegoBlocked(sc) {
+      if (!sc || !sc.is_stego) return "";
+      const lines = [
+        `<span class="bad">已是 DE 隱寫圖，不能再次嵌入</span>`,
+        `模式：${sc.mode_label || sc.mode}，溢位 n = ${sc.overflow_count ?? "（magic 檢測）"}`,
+      ];
+      if (sc.data_preview) lines.push(`已藏 DATA 預覽：${sc.data_preview}`);
+      lines.push(`<span class="muted">請改用原始封面圖，或到②解碼專區提取 DATA。</span>`);
+      return lines.map(l => `<div class="cap-line">${l}</div>`).join("");
+    }
+
+    function clearEmbedOutput() {
+      hideCompatScore();
+      clearPacketDynamic();
+      setCapacityViz(null);
+      setImage("stegoBox", null);
+      document.getElementById("stegoBox").textContent = "無法嵌入";
+      setImage("restoredBox", null);
+      document.getElementById("restoredBox").textContent = "—";
+      document.getElementById("decodeText").textContent = "解碼 DATA：-";
+      document.getElementById("judge").innerHTML = '<span class="bad">此圖已隱寫過</span>';
+      document.getElementById("embedLog").textContent = "-";
+      document.getElementById("decodeLog").textContent = "-";
+      setDownloads(null);
+    }
+
+    async function runAnalyze() {
+      if (!coverFile) return;
+      const myRun = ++runId;
+      setStatus("檢查隱寫（magic + CRC）…");
+      try {
+        const fd = fdBase();
+        appendSecretPayload(fd);
+        const data = await post("/api/analyze", fd);
+        if (myRun !== runId) return;
+        setImage("coverBox", data.cover_preview);
+        setImageStats(data.image_stats);
+        if (data.already_stego) {
+          hideCompatScore();
+          document.getElementById("capInfo").innerHTML = formatStegoBlocked(data.stego_check);
+          setCapacityViz(null);
+          document.getElementById("overflowInfo").innerHTML = "";
+          clearEmbedOutput();
+          setStatus(data.message || "此圖已隱寫過");
+          return;
+        }
+        const analysis = data.analysis;
+        showAnalysis(analysis, secretDisplayLabel());
+        document.getElementById("overflowInfo").innerHTML = formatOverflow(data.overflow_msg, data.analysis.overflow_pairs_preview, analysis);
+        setStatus(`容量已更新${formatTimingMs(data)}`);
+        if (hasSecretPayload()) {
+          if (analysis.fits === false) {
+            setImage("stegoBox", null);
+            document.getElementById("stegoBox").textContent = "無法嵌入";
+            setDownloads(null);
+            setStatus((analysis.embed_error || "容量不足，無法嵌入").split("\n")[0]);
+          } else {
+            await runEmbed();
+          }
+        }
+      } catch (e) {
+        if (myRun === runId) setStatus(e.message);
+      }
+    }
+
+    async function runEmbed() {
+      if (!coverFile) return;
+      if (!hasSecretPayload()) {
+        setImage("stegoBox", null);
+        document.getElementById("stegoBox").textContent = "請輸入 DATA 或選擇檔案";
+        setDownloads(null);
+        return;
+      }
+      const myRun = ++runId;
+      setStatus("嵌入 + 驗證中…");
+      try {
+        const fd = fdBase();
+        appendSecretPayload(fd);
+        const data = await post("/api/embed", fd);
+        if (myRun !== runId) return;
+        setImage("coverBox", data.cover_preview);
+        setImage("stegoBox", data.stego_preview);
+        setImage("restoredBox", data.restored_preview);
+        setImageStats(data.image_stats);
+        const analysis = data.analysis;
+        showAnalysis(analysis, secretDisplayLabel());
+        document.getElementById("overflowInfo").innerHTML = formatOverflow(data.embed.overflow_msg, data.embed.overflow_pairs, analysis);
+        document.getElementById("decodeText").textContent = `解碼 DATA：${data.embed.decoded}`;
+        const wLine = data.embed.weak_skip_count > 0
+          ? `<br>I<sub>weak</sub> 索引 = ${data.embed.weak_skip_count.toLocaleString()} 筆（V4 新欄位）`
+          : "";
+        document.getElementById("judge").innerHTML = data.embed.verify_error
+          ? `<span class="warn">嵌入已完成（${data.embed.bits} bits${data.embed.weak_skip_count ? ` · Iweak=${data.embed.weak_skip_count}` : ""}），但自動驗證失敗：${data.embed.verify_error}<br>請先下載 PNG 隱寫圖，再到②解碼專區測試。</span>`
+          : data.embed.success
+          ? `<span class="ok">判斷：成功（DATA 與 CRC 正確，封面可還原）${wLine}</span>`
+          : '<span class="bad">判斷：失敗</span>';
+        document.getElementById("embedLog").textContent = data.embed.log || "-";
+        document.getElementById("decodeLog").textContent = data.embed.decode_log || "-";
+        setDownloads(data.stego_preview, data.embed.stego_download_name);
+        setStatus(`完成${formatTimingMs(data)}`);
+      } catch (e) {
+        if (myRun === runId) {
+          if (e.alreadyStego) {
+            if (e.coverPreview) setImage("coverBox", e.coverPreview);
+            if (e.imageStats) setImageStats(e.imageStats);
+            hideCompatScore();
+            document.getElementById("capInfo").innerHTML = formatStegoBlocked(e.stegoCheck);
+            setCapacityViz(null);
+            document.getElementById("overflowInfo").innerHTML = "";
+            clearEmbedOutput();
+          } else {
+            setImage("stegoBox", null);
+            document.getElementById("stegoBox").textContent = "嵌入失敗";
+            if (e.apiData?.analysis) {
+              const analysis = e.apiData.analysis;
+              analysis.embed_error = e.message;
+              analysis.fits = false;
+              showAnalysis(analysis, secretDisplayLabel());
+              if (e.apiData.overflow_msg) {
+                document.getElementById("overflowInfo").innerHTML =
+                  formatOverflow(e.apiData.overflow_msg, e.apiData.analysis?.overflow_pairs_preview, analysis);
+              }
+            } else if (e.message) {
+              document.getElementById("capInfo").innerHTML +=
+                formatEmbedError(e.message);
+            }
+          }
+          setStatus((e.message || "失敗").split("\n")[0]);
+          setDownloads(null);
+        }
+      }
+    }
+
+    function scheduleRun(fn) { clearTimeout(debounceTimer); debounceTimer = setTimeout(fn, 400); }
+
+    coverInput.addEventListener("change", () => {
+      setCoverFile(coverInput.files[0] || null);
+    });
+
+    secretInput.addEventListener("input", () => {
+      if (secretFile) clearSecretFileInput();
+      if (!coverFile) return;
+      if (lastCapAnalysis) refreshCapVizQuick();
+      scheduleRun(runAnalyze);
+    });
+
+    secretFileInput.addEventListener("change", () => {
+      setSecretFile(secretFileInput.files[0] || null);
+    });
+
+    // 解碼專區
+    const stegoInput = document.getElementById("stegoFile");
+    const btnCopyDecode = document.getElementById("btnCopyDecode");
+    const btnDownloadDecode = document.getElementById("btnDownloadDecode");
+    let stegoFile = null, decodeRunId = 0, decodeDebounce = null, decodeResultRaw = "", decodePayload = null;
+
+    function formatSecretDisplay(text) {
+      if (text == null) return "";
+      let s = String(text);
+      s = s.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\\r/g, "\n");
+      return s.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    }
+
+    function setDecodeResult(extract) {
+      decodePayload = extract || null;
+      const extEl = document.getElementById("decodeExtInfo");
+      const textEl = document.getElementById("decodeOnlyText");
+      const imgWrap = document.getElementById("decodeImageWrap");
+      const imgEl = document.getElementById("decodeImagePreview");
+      const labelEl = document.getElementById("decodeResultLabel");
+
+      if (!extract) {
+        clearDecodeResult();
+        return;
+      }
+
+      extEl.textContent = `檔案名稱：${extract.filename} · ${extract.size} bytes · ${extract.mime}`;
+      btnDownloadDecode.disabled = !extract.data_base64;
+      btnCopyDecode.disabled = !extract.viewable_text || !extract.text;
+
+      imgWrap.style.display = "none";
+      textEl.style.display = "block";
+
+      if (extract.viewable_image && extract.data_base64) {
+        labelEl.textContent = "圖片預覽";
+        imgWrap.style.display = "block";
+        imgEl.src = `data:${extract.mime};base64,${extract.data_base64}`;
+        if (extract.viewable_text) {
+          decodeResultRaw = formatSecretDisplay(extract.text);
+          textEl.textContent = decodeResultRaw;
+        } else {
+          decodeResultRaw = "";
+          textEl.textContent = "（圖片檔案，請使用下載）";
+        }
+      } else if (extract.viewable_text) {
+        labelEl.textContent = "提取內容";
+        decodeResultRaw = formatSecretDisplay(extract.text);
+        textEl.textContent = decodeResultRaw;
+      } else {
+        labelEl.textContent = "二進位檔案";
+        decodeResultRaw = "";
+        textEl.textContent = `無法直接預覽，檔案 ${extract.filename}，請點「下載」取得檔案。`;
+      }
+    }
+
+    function clearDecodeResult() {
+      decodePayload = null;
+      decodeResultRaw = "";
+      document.getElementById("decodeExtInfo").textContent = "檔案名稱：—";
+      document.getElementById("decodeResultLabel").textContent = "提取內容";
+      document.getElementById("decodeImageWrap").style.display = "none";
+      document.getElementById("decodeImagePreview").removeAttribute("src");
+      document.getElementById("decodeOnlyText").textContent = "—";
+      btnCopyDecode.disabled = true;
+      btnDownloadDecode.disabled = true;
+    }
+
+    btnDownloadDecode.addEventListener("click", () => {
+      if (!decodePayload?.data_base64) return;
+      const bin = atob(decodePayload.data_base64);
+      const arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+      const blob = new Blob([arr], { type: decodePayload.mime || "application/octet-stream" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = decodePayload.filename || "decoded.bin";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    });
+
+    btnCopyDecode.addEventListener("click", async () => {
+      if (!decodeResultRaw) return;
+      const orig = btnCopyDecode.textContent;
+      try {
+        await navigator.clipboard.writeText(decodeResultRaw);
+        btnCopyDecode.textContent = "已複製";
+      } catch {
+        btnCopyDecode.textContent = "複製失敗";
+      }
+      setTimeout(() => { btnCopyDecode.textContent = orig; }, 1200);
+    });
+
+    async function runDecode() {
+      if (!stegoFile) return;
+      const myRun = ++decodeRunId;
+      document.getElementById("decodeStatus").textContent = "解碼中…";
+      clearDecodeResult();
+      setImageStats(null, "decodeImageStats");
+      try {
+        const fd = new FormData();
+        fd.append("stego_file", stegoFile);
+        const data = await post("/api/decode", fd);
+        if (myRun !== decodeRunId) return;
+        setImage("decodeStegoBox", data.stego_preview);
+        setImage("decodeCoverBox", data.cover_preview);
+        setImageStats(data.image_stats, "decodeImageStats");
+        setDecodeResult(data.extract);
+        document.getElementById("decodeOnlyJudge").innerHTML =
+          `<span class="ok">解碼成功（${data.extract.mode === "color" ? "彩色" : "灰階"} ${data.extract.width}×${data.extract.height}，溢位 n=${data.extract.overflow_count}）</span>`;
+        document.getElementById("decodeOnlyLog").textContent = data.extract.log || "-";
+        document.getElementById("decodeStatus").textContent = `解碼完成${formatTimingMs(data)}`;
+      } catch (e) {
+        if (myRun === decodeRunId) {
+          document.getElementById("decodeStatus").textContent = e.message;
+          document.getElementById("decodeOnlyJudge").innerHTML = `<span class="bad">${e.message}</span>`;
+          clearDecodeResult();
+        }
+      }
+    }
+
+    function setStegoFile(file) {
+      stegoFile = file || null;
+      if (stegoFile) assignInputFile(stegoInput, stegoFile);
+      document.getElementById("stegoFname").textContent = stegoFile ? stegoFile.name : "";
+      clearTimeout(decodeDebounce);
+      if (stegoFile) decodeDebounce = setTimeout(runDecode, 300);
+    }
+
+    stegoInput.addEventListener("change", () => {
+      setStegoFile(stegoInput.files[0] || null);
+    });
+  </script>
+{% endblock %}
